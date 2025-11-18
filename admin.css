@@ -1,10 +1,4 @@
-/* Base Vars */
-:root {
-    --primary: #10B981;
-    --primary-dark: #059669;
-}
-
-/* Layout */
+/* admin.css */
 .nav-item {
     display: flex;
     align-items: center;
@@ -15,30 +9,32 @@
     font-weight: 500;
     border-radius: 0.5rem;
     margin-bottom: 0.25rem;
-    transition: all 0.2s;
+    transition: all 0.15s ease-in-out;
     cursor: pointer;
     background: transparent;
     border: none;
+    text-align: left;
 }
 
 .nav-item:hover {
-    background-color: #F3F4F6;
+    background-color: #F9FAFB;
     color: #111827;
 }
 
 .nav-item.active {
     background-color: #ECFDF5;
     color: #059669;
+    font-weight: 600;
 }
 
 .nav-item i {
-    width: 1.25rem;
-    height: 1.25rem;
+    width: 1.15rem;
+    height: 1.15rem;
     margin-right: 0.75rem;
 }
 
 .sidebar-divider {
-    font-size: 0.75rem;
+    font-size: 0.7rem;
     font-weight: 700;
     color: #9CA3AF;
     text-transform: uppercase;
@@ -48,85 +44,74 @@
     padding-left: 1rem;
 }
 
-/* Cards */
 .stat-card {
     background: white;
     padding: 1.5rem;
     border-radius: 0.75rem;
-    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
 }
 
-/* Inputs & Buttons */
 .input-std {
     width: 100%;
-    padding: 0.625rem;
+    padding: 0.6rem 0.8rem;
     border: 1px solid #D1D5DB;
     border-radius: 0.5rem;
     outline: none;
     font-size: 0.875rem;
+    color: #1F2937;
+    transition: border-color 0.2s;
 }
 .input-std:focus {
-    border-color: var(--primary);
-    box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
+    border-color: #10B981;
+    box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.1);
 }
 
 .btn-primary {
-    background-color: var(--primary);
+    background-color: #10B981;
     color: white;
-    padding: 0.625rem 1rem;
+    padding: 0.6rem 1rem;
     border-radius: 0.5rem;
     font-weight: 600;
-    transition: background-color 0.2s;
+    transition: background-color 0.2s, transform 0.1s;
+    font-size: 0.875rem;
 }
 .btn-primary:hover {
-    background-color: var(--primary-dark);
+    background-color: #059669;
+}
+.btn-primary:active {
+    transform: scale(0.98);
 }
 
-.btn-secondary {
-    background-color: white;
-    border: 1px solid #D1D5DB;
-    color: #374151;
-    padding: 0.5rem 1rem;
-    border-radius: 0.5rem;
-    font-weight: 600;
-    transition: background-color 0.2s;
-}
-.btn-secondary:hover {
-    background-color: #F9FAFB;
-}
-
-/* Modals */
 .modal-overlay {
     position: fixed;
     inset: 0;
-    background-color: rgba(0, 0, 0, 0.5);
+    background-color: rgba(17, 24, 39, 0.6);
     z-index: 50;
     display: flex;
     align-items: center;
     justify-content: center;
-    backdrop-filter: blur(2px);
+    backdrop-filter: blur(3px);
 }
 
 .modal-content {
     background: white;
     border-radius: 1rem;
     padding: 1.5rem;
-    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
-    animation: modalScale 0.2s ease-out;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+    animation: modalEnter 0.2s ease-out;
 }
 
-@keyframes modalScale {
-    from { transform: scale(0.95); opacity: 0; }
-    to { transform: scale(1); opacity: 1; }
+@keyframes modalEnter {
+    from { opacity: 0; transform: scale(0.95); }
+    to { opacity: 1; transform: scale(1); }
 }
 
-/* Animations */
 .animate-fade-in {
     animation: fadeIn 0.3s ease-out;
 }
 
 @keyframes fadeIn {
-    from { opacity: 0; transform: translateY(10px); }
+    from { opacity: 0; transform: translateY(5px); }
     to { opacity: 1; transform: translateY(0); }
 }
 
