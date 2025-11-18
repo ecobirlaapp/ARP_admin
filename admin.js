@@ -6,7 +6,7 @@
 const SUPABASE_URL = 'https://aggqmjxhnsbmsymwblqg.supabase.co'; 
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFnZ3FtanhobnNibXN5bXdibHFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjMzNjQ0NTgsImV4cCI6MjA3ODk0MDQ1OH0.YZmrw7-LtIjlvTkU0c7G8qZ2VDNO8PeHudkGVo1PQ8Q';
 
-// FIX: Use a different variable name to avoid conflict with the global 'supabase' library
+// Use a unique variable name to prevent conflicts
 const sbClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 const CLOUDINARY_URL = 'https://api.cloudinary.com/v1_1/dnia8lb2q/image/upload';
@@ -14,7 +14,7 @@ const CLOUDINARY_PRESET = 'EcoBirla_avatars';
 
 // Global State
 let currentUser = null;
-let charts = { traffic: null, actions: null, distribution: null };
+let charts = { traffic: null, actions: null };
 
 // Initialize
 document.addEventListener('DOMContentLoaded', async () => {
@@ -92,6 +92,7 @@ window.navTo = (viewId) => {
     document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
     event.currentTarget.classList.add('active');
     
+    // Call the specific load function for the view
     if (viewId === 'dashboard') loadDashboard();
     if (viewId === 'users') loadUsers();
     if (viewId === 'events') loadEvents();
@@ -152,7 +153,6 @@ async function loadDashboard() {
 }
 
 async function renderTrafficChart() {
-    // Use dummy data if table empty for visual check
     const { data: views } = await sbClient.from('page_analytics').select('viewed_at');
     const counts = {};
     
@@ -162,8 +162,7 @@ async function renderTrafficChart() {
             counts[date] = (counts[date] || 0) + 1;
         });
     } else {
-        // Fallback dummy data for UI testing
-        counts['Mon'] = 12; counts['Tue'] = 19; counts['Wed'] = 3;
+        counts['No Data'] = 0;
     }
 
     const ctx = document.getElementById('dashTrafficChart');
@@ -198,7 +197,12 @@ async function renderTrafficChart() {
 
 async function loadUsers() {
     const search = document.getElementById('user-search').value;
-    let query = sbClient.from('users').select('*, user_impact(total_plastic_kg)').order('created_at', { ascending: false });
+    
+    // FIX: Explicitly specify the Foreign Key relationship for user_impact
+    let query = sbClient
+        .from('users')
+        .select('*, user_impact!user_impact_user_id_fkey(total_plastic_kg)')
+        .order('created_at', { ascending: false });
 
     if (search) {
         query = query.or(`student_id.ilike.%${search}%,full_name.ilike.%${search}%`);
@@ -274,10 +278,11 @@ window.deleteUser = async (id) => {
 // =============================================
 
 async function loadApprovals() {
-    // Challenges
+    // FIX: Explicit Foreign Keys for ambiguous relationships
+    // Challenges (user_id link)
     const { data: challenges, error: cError } = await sbClient
         .from('challenge_submissions')
-        .select('*, users(full_name), challenges(title, points_reward)')
+        .select('*, users!challenge_submissions_user_id_fkey(full_name), challenges(title, points_reward)')
         .eq('status', 'pending');
     
     if (cError) console.error("Challenges Error:", cError);
@@ -304,10 +309,10 @@ async function loadApprovals() {
         cList.innerHTML = '<p class="text-gray-400 text-sm italic text-center p-4">No pending photos.</p>';
     }
 
-    // Orders
+    // Orders (user_id link)
     const { data: orders, error: oError } = await sbClient
         .from('orders')
-        .select('*, users(full_name), stores(name)')
+        .select('*, users!orders_user_id_fkey(full_name), stores(name)')
         .eq('status', 'pending');
 
     if (oError) console.error("Orders Error:", oError);
@@ -347,9 +352,10 @@ window.processOrder = async (id, status) => {
 // =============================================
 
 async function loadLogs() {
+    // FIX: Explicit join on user_id
     const { data: logs, error } = await sbClient
         .from('user_activity_log')
-        .select('*, users(full_name)')
+        .select('*, users!user_activity_log_user_id_fkey(full_name)')
         .order('created_at', { ascending: false })
         .limit(50);
         
@@ -399,23 +405,214 @@ async function loadAnalytics() {
 }
 
 // =============================================
-// 6. EVENTS, PRODUCTS & UTILS
+// 6. EVENTS, PRODUCTS & COUPONS (Was Missing)
 // =============================================
 
-// ... (Events, Store, Coupon logic remains the same, just replace `supabase` with `sbClient`)
-// For brevity, assuming you apply the 'sbClient' rename to the rest of the file functions 
-// (loadEvents, saveProduct, etc.) similar to above.
+// EVENTS
+async function loadEvents() {
+    const { data: events, error } = await sbClient.from('events').select('*').order('start_at', { ascending: false });
+    
+    if (error) { console.error(error); return; }
+
+    document.getElementById('events-grid').innerHTML = events.map(e => `
+        <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-200 flex flex-col">
+            <div class="flex justify-between items-start mb-2">
+                 <span class="bg-purple-100 text-purple-700 px-2 py-1 rounded text-xs font-bold uppercase">
+                    ${new Date(e.start_at).toLocaleDateString()}
+                 </span>
+                 <button onclick="deleteEvent('${e.id}')" class="text-gray-400 hover:text-red-500"><i data-lucide="trash" class="w-4 h-4"></i></button>
+            </div>
+            <h4 class="font-bold text-gray-800 text-lg mb-1">${e.title}</h4>
+            <p class="text-sm text-gray-500 mb-4 flex-1 line-clamp-2">${e.description}</p>
+            <div class="flex items-center justify-between pt-3 border-t border-gray-100">
+                <span class="text-green-600 font-bold text-sm">+${e.points_reward} Pts</span>
+                <button onclick="openRSVPModal('${e.id}', '${e.title}')" class="text-blue-600 text-sm font-medium hover:underline">Manage RSVP</button>
+            </div>
+        </div>
+    `).join('');
+    lucide.createIcons();
+}
+
+window.openRSVPModal = async (eventId, title) => {
+    document.getElementById('rsvp-event-title').textContent = title;
+    document.getElementById('rsvp-modal').classList.remove('hidden');
+    
+    // Explicit join on user_id
+    const { data: rsvps } = await sbClient
+        .from('event_attendance')
+        .select('*, users!event_attendance_user_id_fkey(full_name, student_id)')
+        .eq('event_id', eventId);
+
+    document.getElementById('rsvp-list-body').innerHTML = rsvps.map(r => `
+        <tr class="border-b border-gray-50">
+            <td class="p-3 font-mono text-xs text-gray-500">${r.users?.student_id}</td>
+            <td class="p-3 font-bold text-gray-800 text-sm">${r.users?.full_name}</td>
+            <td class="p-3">
+                <span class="px-2 py-1 rounded text-xs font-bold ${r.status === 'confirmed' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}">
+                    ${r.status.toUpperCase()}
+                </span>
+            </td>
+            <td class="p-3 text-right">
+                ${r.status !== 'confirmed' ? 
+                    `<button onclick="markPresent('${r.id}')" class="bg-green-600 text-white px-2 py-1 rounded text-xs font-bold hover:bg-green-700">Confirm</button>` : 
+                    '<i data-lucide="check-circle" class="w-5 h-5 text-green-500 inline"></i>'
+                }
+            </td>
+        </tr>
+    `).join('');
+    lucide.createIcons();
+};
+
+window.markPresent = async (attendanceId) => {
+    const { error } = await sbClient
+        .from('event_attendance')
+        .update({ status: 'confirmed', admin_id: currentUser.id })
+        .eq('id', attendanceId);
+        
+    if(!error) {
+        alert('Attendance confirmed & points awarded!');
+        document.getElementById('rsvp-modal').classList.add('hidden'); 
+        loadEvents(); 
+    }
+};
+
+window.saveEvent = async () => {
+    const event = {
+        title: document.getElementById('e-title').value,
+        start_at: document.getElementById('e-start').value,
+        points_reward: document.getElementById('e-points').value,
+        description: document.getElementById('e-desc').value,
+        location: document.getElementById('e-loc').value
+    };
+    await sbClient.from('events').insert(event);
+    closeModal('event-modal');
+    loadEvents();
+};
+
+window.deleteEvent = async (id) => {
+    if(confirm("Delete event?")) {
+        await sbClient.from('events').delete().eq('id', id);
+        loadEvents();
+    }
+};
+
+// STORE & PRODUCTS
+async function loadStore() {
+    const { data: products } = await sbClient.from('products').select('*, stores(name)');
+    
+    const { data: stores } = await sbClient.from('stores').select('*');
+    const storeSelect = document.getElementById('p-store');
+    if (storeSelect && stores) {
+        storeSelect.innerHTML = stores.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
+    }
+
+    document.getElementById('products-grid').innerHTML = products.map(p => `
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col">
+            <div class="h-32 bg-gray-100 bg-cover bg-center" style="background-image: url('${p.metadata?.image || 'https://placehold.co/300'}')"></div>
+            <div class="p-4 flex-1 flex flex-col">
+                <div class="mb-auto">
+                    <p class="text-xs text-gray-500 mb-1">${p.stores?.name}</p>
+                    <h4 class="font-bold text-gray-800">${p.name}</h4>
+                </div>
+                <div class="flex justify-between items-center mt-3 pt-3 border-t border-gray-100">
+                    <span class="text-green-600 font-bold">${p.ecopoints_cost} Pts</span>
+                    <button onclick="deleteProduct('${p.id}')" class="text-red-400 hover:text-red-600"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                </div>
+            </div>
+        </div>
+    `).join('');
+    lucide.createIcons();
+}
+
+document.getElementById('p-file').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    document.getElementById('p-upload-text').textContent = "Uploading...";
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('upload_preset', CLOUDINARY_PRESET);
+
+    try {
+        const res = await fetch(CLOUDINARY_URL, { method: 'POST', body: formData });
+        const data = await res.json();
+        
+        document.getElementById('p-img-url').value = data.secure_url;
+        document.getElementById('p-img-preview').style.backgroundImage = `url('${data.secure_url}')`;
+        document.getElementById('p-img-preview').classList.remove('hidden');
+        document.getElementById('p-upload-text').textContent = "Upload Complete!";
+    } catch (err) {
+        console.error(err);
+        document.getElementById('p-upload-text').textContent = "Upload Failed";
+    }
+});
+
+window.saveProduct = async () => {
+    const product = {
+        store_id: document.getElementById('p-store').value,
+        name: document.getElementById('p-name').value,
+        ecopoints_cost: parseInt(document.getElementById('p-cost').value),
+        original_price: parseInt(document.getElementById('p-price').value) || 0,
+        description: document.getElementById('p-desc').value,
+        metadata: { image: document.getElementById('p-img-url').value },
+        is_active: true
+    };
+    
+    await sbClient.from('products').insert(product);
+    closeModal('product-modal');
+    loadStore();
+};
+
+window.deleteProduct = async (id) => {
+    if(confirm('Delete this product?')) {
+        await sbClient.from('products').delete().eq('id', id);
+        loadStore();
+    }
+};
+
+// COUPONS
+async function loadCoupons() {
+    const { data: coupons, error } = await sbClient.from('coupons').select('*').order('created_at', { ascending: false });
+    if(error) console.error(error);
+    
+    document.getElementById('coupons-table-body').innerHTML = coupons.map(c => `
+        <tr class="border-b border-gray-50 hover:bg-gray-50">
+            <td class="p-3 font-mono font-bold text-gray-800">${c.code}</td>
+            <td class="p-3 font-bold text-green-600">${c.points_fixed} pts</td>
+            <td class="p-3 text-sm">${c.max_redemptions}</td>
+            <td class="p-3 text-sm">${c.redeemed_count}</td>
+            <td class="p-3 text-right"><span class="px-2 py-1 rounded text-xs bg-green-100 text-green-800">Active</span></td>
+        </tr>
+    `).join('');
+}
+
+window.generateCouponCode = () => {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    let code = '';
+    for(let i=0; i<8; i++) code += chars.charAt(Math.floor(Math.random() * chars.length));
+    document.getElementById('c-code').value = code;
+};
+
+window.saveCoupon = async () => {
+    const data = {
+        code: document.getElementById('c-code').value,
+        points_fixed: document.getElementById('c-points').value,
+        max_redemptions: document.getElementById('c-limit').value
+    };
+    await sbClient.from('coupons').insert(data);
+    closeModal('coupon-modal');
+    loadCoupons();
+};
+
+window.downloadAttendancePDF = () => {
+    const element = document.getElementById('rsvp-table');
+    const title = document.getElementById('rsvp-event-title').textContent;
+    html2pdf().from(element).save(`${title}_Attendance_Report.pdf`);
+};
 
 // Modals
 window.openUserModal = () => document.getElementById('user-modal').classList.remove('hidden');
 window.openEventModal = () => document.getElementById('event-modal').classList.remove('hidden');
 window.openProductModal = () => document.getElementById('product-modal').classList.remove('hidden');
-window.openCouponModal = () => { 
-    // Generate code
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    let code = '';
-    for(let i=0; i<8; i++) code += chars.charAt(Math.floor(Math.random() * chars.length));
-    document.getElementById('c-code').value = code;
-    document.getElementById('coupon-modal').classList.remove('hidden'); 
-};
+window.openCouponModal = () => { generateCouponCode(); document.getElementById('coupon-modal').classList.remove('hidden'); };
 window.closeModal = (id) => document.getElementById(id).classList.add('hidden');
