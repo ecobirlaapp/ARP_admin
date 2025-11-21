@@ -38,37 +38,51 @@
             </div>
         </div>
     </div>
-    <script type="module">
-        import { supabase } from './js/supabase-client.js';
+   <script type="module">
+    import { supabase } from './js/supabase-client.js';
+    
+    document.getElementById('admin-login-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const email = document.getElementById('email').value;
+        const password = document.getElementById('password').value;
+        const btn = document.getElementById('login-btn');
+        const err = document.getElementById('error-msg');
         
-        document.getElementById('admin-login-form').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const email = document.getElementById('email').value;
-            const password = document.getElementById('password').value;
-            const btn = document.getElementById('login-btn');
-            const err = document.getElementById('error-msg');
+        btn.disabled = true; btn.innerText = 'Verifying...'; err.classList.add('hidden');
+
+        try {
+            // 1. Authenticate with Supabase Auth
+            const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+            if (error) throw error;
             
-            btn.disabled = true; btn.innerText = 'Verifying...'; err.classList.add('hidden');
-
-            try {
-                const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-                if (error) throw error;
-                
-                // Check Role
-                const { data: profile } = await supabase.from('users').select('role').eq('id', data.user.id).single();
-                
-                if (!profile || profile.role !== 'admin') {
-                    await supabase.auth.signOut();
-                    throw new Error("Access Denied: You do not have Admin privileges.");
-                }
-
-                window.location.href = 'admin.html';
-            } catch (error) {
-                err.textContent = error.message;
-                err.classList.remove('hidden');
-                btn.disabled = false; btn.innerText = 'Sign In';
+            // 2. Check Role in Public Users Table
+            // FIX: Changed .eq('id', ...) to .eq('auth_user_id', ...)
+            const { data: profile, error: profileError } = await supabase
+                .from('users')
+                .select('role')
+                .eq('auth_user_id', data.user.id) 
+                .single();
+            
+            if (profileError || !profile) {
+                throw new Error("Profile not found. Please contact support.");
             }
-        });
-    </script>
+
+            if (profile.role !== 'admin') {
+                await supabase.auth.signOut();
+                throw new Error("Access Denied: You do not have Admin privileges.");
+            }
+
+            // 3. Redirect on Success
+            window.location.href = 'admin.html';
+        } catch (error) {
+            console.error(error);
+            err.textContent = error.message;
+            err.classList.remove('hidden');
+            btn.disabled = false; btn.innerText = 'Sign In';
+            // Optional: Log out if there was a partial success to prevent stuck sessions
+            await supabase.auth.signOut(); 
+        }
+    });
+</script>
 </body>
 </html>
