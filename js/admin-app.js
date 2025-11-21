@@ -10,26 +10,45 @@ import { renderCodes } from './admin-codes.js';
 // Global Auth Check
 const checkAdminAuth = async () => {
     const { data: { session } } = await supabase.auth.getSession();
-    if (!session) window.location.href = 'admin-login.html';
+    if (!session) {
+        window.location.href = 'admin-login.html';
+        return;
+    }
     
     // Verify Role
-    const { data: user } = await supabase.from('users').select('role, full_name').eq('id', session.user.id).single();
-    if (!user || user.role !== 'admin') {
+    // FIX: Changed .eq('id', session.user.id) to .eq('auth_user_id', session.user.id)
+    const { data: user, error } = await supabase
+        .from('users')
+        .select('role, full_name')
+        .eq('auth_user_id', session.user.id)
+        .single();
+
+    if (error || !user || user.role !== 'admin') {
+        console.error("Auth Error or Not Admin:", error);
         await supabase.auth.signOut();
         window.location.href = 'admin-login.html';
+        return;
     }
-    document.getElementById('admin-name').textContent = user.full_name;
+
+    // If successful, set name and load dashboard
+    const nameEl = document.getElementById('admin-name');
+    if(nameEl) nameEl.textContent = user.full_name;
+    loadView('dashboard');
 };
 
 // Router
 window.loadView = (view) => {
     const container = document.getElementById('view-container');
     const title = document.getElementById('page-title');
+    
+    // Safety check if container is missing
+    if (!container) return;
+
     container.innerHTML = '<div class="flex items-center justify-center h-full"><div class="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-600"></div></div>';
 
     // Update Nav State
     document.querySelectorAll('.nav-btn').forEach(btn => {
-        if(btn.getAttribute('onclick').includes(view)) {
+        if(btn.getAttribute('onclick') && btn.getAttribute('onclick').includes(view)) {
             btn.classList.add('bg-gray-800', 'text-white');
             btn.classList.remove('text-gray-300');
         } else {
@@ -40,19 +59,19 @@ window.loadView = (view) => {
 
     setTimeout(() => {
         switch(view) {
-            case 'dashboard': title.textContent = 'Overview'; renderDashboard(container); break;
-            case 'users': title.textContent = 'User Management'; renderUsers(container); break;
-            case 'reviews': title.textContent = 'Review Center'; renderReviews(container); break;
-            case 'events': title.textContent = 'Event Management'; renderEvents(container); break;
-            case 'store': title.textContent = 'Store & Inventory'; renderStore(container); break;
-            case 'orders': title.textContent = 'Order Management'; renderOrders(container); break;
-            case 'challenges': title.textContent = 'Challenges & Quizzes'; renderChallenges(container); break;
-            case 'codes': title.textContent = 'Redeem Codes'; renderCodes(container); break;
-            case 'leaderboard': title.textContent = 'Global Leaderboard'; renderLeaderboard(container); break;
+            case 'dashboard': if(title) title.textContent = 'Overview'; renderDashboard(container); break;
+            case 'users': if(title) title.textContent = 'User Management'; renderUsers(container); break;
+            case 'reviews': if(title) title.textContent = 'Review Center'; renderReviews(container); break;
+            case 'events': if(title) title.textContent = 'Event Management'; renderEvents(container); break;
+            case 'store': if(title) title.textContent = 'Store & Inventory'; renderStore(container); break;
+            case 'orders': if(title) title.textContent = 'Order Management'; renderOrders(container); break;
+            case 'challenges': if(title) title.textContent = 'Challenges & Quizzes'; renderChallenges(container); break;
+            case 'codes': if(title) title.textContent = 'Redeem Codes'; renderCodes(container); break;
+            case 'leaderboard': if(title) title.textContent = 'Global Leaderboard'; renderLeaderboard(container); break;
             default: renderDashboard(container);
         }
-        lucide.createIcons();
-    }, 100); // Slight delay for UI feel
+        if(window.lucide) window.lucide.createIcons();
+    }, 100); 
 };
 
 window.handleLogout = async () => {
@@ -77,9 +96,9 @@ window.openModal = (html) => {
     setTimeout(() => {
         content.classList.remove('scale-95', 'opacity-0');
         content.classList.add('scale-100', 'opacity-100');
-        lucide.createIcons();
+        if(window.lucide) window.lucide.createIcons();
     }, 10);
 };
 
 // Init
-checkAdminAuth().then(() => loadView('dashboard'));
+checkAdminAuth();
