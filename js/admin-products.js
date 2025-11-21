@@ -1,18 +1,23 @@
 import { supabase } from './supabase-client.js';
 import { uploadToCloudinary } from './cloudinary-service.js';
 
+// =======================
+// 1. RENDER PRODUCT LIST
+// =======================
 export const renderProducts = async (container) => {
     const { data: products, error } = await supabase
         .from('products')
         .select('*, stores(name)')
         .order('created_at', { ascending: false });
 
+    if (error) console.error('Error fetching products:', error);
+
     container.innerHTML = `
         <div class="flex justify-between items-center mb-6">
             <h3 class="font-bold text-xl text-gray-800">Product Inventory</h3>
             <div class="flex gap-3">
-                <input type="text" id="prod-search" placeholder="Search products..." class="border p-2 rounded text-sm w-64" oninput="filterProducts()">
-                <button onclick="openProductModal()" class="bg-brand-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-brand-700 flex items-center gap-2 shadow-sm">
+                <input type="text" id="prod-search" placeholder="Search products..." class="border p-2 rounded text-sm w-64 shadow-sm focus:ring-2 focus:ring-brand-500 focus:outline-none" oninput="filterProducts()">
+                <button onclick="openProductModal()" class="bg-brand-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-brand-700 flex items-center gap-2 shadow-sm transition-all">
                     <i data-lucide="plus" class="w-4 h-4"></i> Add Product
                 </button>
             </div>
@@ -40,7 +45,7 @@ export const renderProducts = async (container) => {
                                 <td class="p-4 font-bold text-green-600">${p.ecopoints_cost}</td>
                                 <td class="p-4"><span class="px-2 py-1 rounded text-xs font-bold ${p.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}">${p.is_active ? 'Active' : 'Hidden'}</span></td>
                                 <td class="p-4 text-right">
-                                    <button onclick="openProductModal('${p.id}')" class="bg-brand-50 text-brand-600 p-2 rounded hover:bg-brand-100"><i data-lucide="edit" class="w-4 h-4"></i></button>
+                                    <button onclick="openProductModal('${p.id}')" class="bg-brand-50 text-brand-600 p-2 rounded hover:bg-brand-100 transition-colors"><i data-lucide="edit" class="w-4 h-4"></i></button>
                                 </td>
                             </tr>
                         `).join('')}
@@ -59,7 +64,11 @@ window.filterProducts = () => {
     });
 };
 
+// =======================
+// 2. PRODUCT MODAL (Create/Edit)
+// =======================
 window.openProductModal = async (productId = null) => {
+    // Fetch stores for dropdown
     const { data: stores } = await supabase.from('stores').select('id, name').eq('is_active', true);
     
     let prod = { name: '', description: '', original_price: '', discounted_price: '', ecopoints_cost: '', store_id: '', is_active: true };
@@ -67,20 +76,24 @@ window.openProductModal = async (productId = null) => {
     let specs = [];
     let mainImage = '';
 
+    // If editing, fetch data
     if (productId) {
         const { data } = await supabase.from('products').select('*').eq('id', productId).single();
         prod = data;
+        
         const { data: f } = await supabase.from('product_features').select('feature').eq('product_id', productId).order('sort_order');
         features = f || [];
+        
         const { data: s } = await supabase.from('product_specifications').select('spec_key, spec_value').eq('product_id', productId).order('sort_order');
         specs = s || [];
+        
         const { data: imgs } = await supabase.from('product_images').select('image_url').eq('product_id', productId).order('sort_order').limit(1);
         if(imgs.length > 0) mainImage = imgs[0].image_url;
     }
 
     const html = `
         <div class="relative flex flex-col h-full">
-            <!-- Header with Close Button -->
+            <!-- Header -->
             <div class="flex justify-between items-center p-6 border-b border-gray-100 bg-white sticky top-0 z-10">
                 <h3 class="text-xl font-bold text-gray-800">${productId ? 'Edit Product' : 'Add Product'}</h3>
                 <button onclick="closeModal()" class="p-2 bg-gray-100 rounded-full hover:bg-gray-200 text-gray-600 transition-colors">
@@ -88,21 +101,21 @@ window.openProductModal = async (productId = null) => {
                 </button>
             </div>
 
-            <!-- Scrollable Content -->
+            <!-- Scrollable Form Content -->
             <div class="p-6 overflow-y-auto flex-grow bg-gray-50">
-                <form id="product-form" class="space-y-6 max-w-3xl mx-auto">
+                <form id="product-form" class="space-y-6 max-w-4xl mx-auto">
                     
-                    <!-- Basic Info Section -->
-                    <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-100">
-                        <h4 class="text-sm font-bold text-gray-400 uppercase tracking-wider mb-4">Basic Information</h4>
-                        <div class="grid grid-cols-2 gap-5">
-                            <div class="col-span-2">
+                    <!-- 1. Basic Info -->
+                    <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                        <h4 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4">Basic Information</h4>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div class="md:col-span-2">
                                 <label class="label">Product Name</label>
-                                <input type="text" id="p-name" value="${prod.name}" class="input-field" required>
+                                <input type="text" id="p-name" value="${prod.name}" class="input-field" placeholder="e.g. Eco-Friendly Water Bottle" required>
                             </div>
-                            <div class="col-span-2">
+                            <div class="md:col-span-2">
                                 <label class="label">Description</label>
-                                <textarea id="p-desc" class="input-field" rows="3">${prod.description || ''}</textarea>
+                                <textarea id="p-desc" class="input-field" rows="3" placeholder="Describe the product...">${prod.description || ''}</textarea>
                             </div>
                             <div>
                                 <label class="label">Store</label>
@@ -113,94 +126,113 @@ window.openProductModal = async (productId = null) => {
                             </div>
                             <div>
                                 <label class="label">EcoPoints Cost</label>
-                                <input type="number" id="p-points" value="${prod.ecopoints_cost}" class="input-field font-bold text-green-600" required>
+                                <input type="number" id="p-points" value="${prod.ecopoints_cost}" class="input-field font-bold text-green-600" placeholder="0" required>
                             </div>
                             <div>
                                 <label class="label">Original Price (₹)</label>
-                                <input type="number" id="p-og-price" value="${prod.original_price}" class="input-field">
+                                <input type="number" id="p-og-price" value="${prod.original_price}" class="input-field" placeholder="0.00">
                             </div>
                             <div>
                                 <label class="label">Discounted Price (₹)</label>
-                                <input type="number" id="p-disc-price" value="${prod.discounted_price}" class="input-field">
+                                <input type="number" id="p-disc-price" value="${prod.discounted_price}" class="input-field" placeholder="0.00">
                             </div>
                         </div>
                     </div>
 
-                    <!-- Image Section -->
-                    <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-100">
-                        <h4 class="text-sm font-bold text-gray-400 uppercase tracking-wider mb-4">Product Image</h4>
-                        <div class="flex gap-3 items-center">
-                            <input type="text" id="p-img-url" value="${mainImage}" placeholder="Enter Image URL" class="input-field flex-1">
+                    <!-- 2. Image Upload -->
+                    <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                        <h4 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4">Product Image</h4>
+                        <div class="flex flex-col md:flex-row gap-4 items-center">
+                            <input type="text" id="p-img-url" value="${mainImage}" placeholder="Paste Image URL here..." class="input-field flex-1">
                             <span class="text-xs font-bold text-gray-400">OR</span>
-                            <label class="cursor-pointer bg-gray-100 hover:bg-gray-200 px-4 py-2 rounded-lg text-sm font-medium text-gray-700 transition">
-                                Upload File
+                            <label class="cursor-pointer bg-gray-100 hover:bg-gray-200 px-4 py-2.5 rounded-lg text-sm font-medium text-gray-700 transition border border-gray-300">
+                                <i data-lucide="upload" class="w-4 h-4 inline-block mr-2"></i>Upload File
                                 <input type="file" id="p-img-file" class="hidden" accept="image/*">
                             </label>
                         </div>
                     </div>
 
-                    <!-- Detailed Features -->
-                    <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-100">
+                    <!-- 3. Features (Dynamic List) -->
+                    <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
                         <div class="flex justify-between items-center mb-4">
-                            <h4 class="text-sm font-bold text-gray-400 uppercase tracking-wider">Features (Bullet Points)</h4>
-                            <button type="button" onclick="addFeatureRow()" class="text-xs bg-brand-50 text-brand-700 px-3 py-1.5 rounded-lg font-bold hover:bg-brand-100">+ Add Feature</button>
+                            <h4 class="text-xs font-bold text-gray-400 uppercase tracking-wider">Features</h4>
+                            <button type="button" onclick="addFeatureRow()" class="text-xs bg-brand-50 text-brand-700 px-3 py-1.5 rounded-lg font-bold hover:bg-brand-100 border border-brand-200 transition">
+                                + Add Feature
+                            </button>
                         </div>
                         <div id="features-container" class="space-y-3">
-                            ${features.map(f => `<input type="text" name="feature[]" value="${f.feature}" class="input-field" placeholder="e.g. Handcrafted">`).join('')}
+                            ${features.map(f => `<input type="text" name="feature[]" value="${f.feature}" class="input-field" placeholder="e.g. Handcrafted material">`).join('')}
                         </div>
+                        <p class="text-xs text-gray-400 mt-2 italic">Add bullet points describing key benefits.</p>
                     </div>
 
-                    <!-- Specifications -->
-                    <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-100">
+                    <!-- 4. Specifications (Key-Value Pairs) -->
+                    <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
                         <div class="flex justify-between items-center mb-4">
-                            <h4 class="text-sm font-bold text-gray-400 uppercase tracking-wider">Technical Specifications</h4>
-                            <button type="button" onclick="addSpecRow()" class="text-xs bg-brand-50 text-brand-700 px-3 py-1.5 rounded-lg font-bold hover:bg-brand-100">+ Add Spec</button>
+                            <h4 class="text-xs font-bold text-gray-400 uppercase tracking-wider">Technical Specifications</h4>
+                            <button type="button" onclick="addSpecRow()" class="text-xs bg-brand-50 text-brand-700 px-3 py-1.5 rounded-lg font-bold hover:bg-brand-100 border border-brand-200 transition">
+                                + Add Specification
+                            </button>
                         </div>
                         <div id="specs-container" class="space-y-3">
                              ${specs.map(s => `
                                 <div class="flex gap-3">
-                                    <input type="text" name="spec_key[]" value="${s.spec_key}" placeholder="Key (e.g. Material)" class="input-field w-1/3 bg-gray-50">
-                                    <input type="text" name="spec_val[]" value="${s.spec_value}" placeholder="Value (e.g. Satin)" class="input-field flex-1">
+                                    <input type="text" name="spec_key[]" value="${s.spec_key}" placeholder="Key (e.g. Color)" class="input-field w-1/3 bg-gray-50 font-medium">
+                                    <input type="text" name="spec_val[]" value="${s.spec_value}" placeholder="Value (e.g. Red)" class="input-field flex-1">
                                 </div>
                             `).join('')}
                         </div>
+                        <p class="text-xs text-gray-400 mt-2 italic">Add technical details like Size, Material, Weight, etc.</p>
                     </div>
 
-                    <div class="flex items-center gap-3 p-2 bg-gray-100 rounded-lg">
-                        <input type="checkbox" id="p-active" ${prod.is_active ? 'checked' : ''} class="w-5 h-5 text-brand-600 rounded focus:ring-brand-500">
-                        <label for="p-active" class="font-medium text-gray-700">Product is Visible in Store</label>
+                    <!-- Visibility Toggle -->
+                    <div class="flex items-center gap-3 p-4 bg-gray-100 rounded-lg border border-gray-200">
+                        <input type="checkbox" id="p-active" ${prod.is_active ? 'checked' : ''} class="w-5 h-5 text-brand-600 rounded focus:ring-brand-500 cursor-pointer">
+                        <label for="p-active" class="font-medium text-gray-700 cursor-pointer select-none">Visible in Store</label>
                     </div>
                 </form>
             </div>
 
             <!-- Footer Actions -->
-            <div class="p-6 border-t border-gray-100 bg-white sticky bottom-0 z-10">
-                <button id="save-product-btn" class="w-full bg-brand-600 text-white font-bold py-3 rounded-xl hover:bg-brand-700 shadow-lg transition-transform active:scale-95">
+            <div class="p-6 border-t border-gray-200 bg-white sticky bottom-0 z-10 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+                <button id="save-product-btn" class="w-full bg-brand-600 text-white font-bold py-3.5 rounded-xl hover:bg-brand-700 shadow-lg transition-all active:scale-95 text-lg">
                     ${productId ? 'Update Product' : 'Create Product'}
                 </button>
             </div>
         </div>
+        
         <style>
-            .label { display: block; font-size: 0.75rem; font-weight: 700; color: #374151; margin-bottom: 0.4rem; }
-            .input-field { width: 100%; border: 1px solid #e5e7eb; padding: 0.75rem; border-radius: 0.5rem; font-size: 0.9rem; transition: border-color 0.2s; }
-            .input-field:focus { outline: none; border-color: #16a34a; ring: 2px solid #bbf7d0; }
+            .label { display: block; font-size: 0.75rem; font-weight: 700; color: #374151; margin-bottom: 0.4rem; letter-spacing: 0.025em; }
+            .input-field { width: 100%; border: 1px solid #e5e7eb; padding: 0.75rem; border-radius: 0.5rem; font-size: 0.9rem; transition: all 0.2s; background-color: #fff; }
+            .input-field:focus { outline: none; border-color: #16a34a; ring: 3px solid #dcfce7; }
+            .input-field::placeholder { color: #9ca3af; }
         </style>
     `;
+    
     openModal(html);
 
-    if(!productId) { addFeatureRow(); addSpecRow(); }
+    // If creating new, add one empty row for convenience
+    if(!productId) { 
+        addFeatureRow(); 
+        addSpecRow(); 
+    }
 
+    // Save Handler
     document.getElementById('save-product-btn').addEventListener('click', async () => {
         const btn = document.getElementById('save-product-btn');
-        btn.disabled = true; btn.innerText = 'Processing...';
+        const originalText = btn.innerText;
+        btn.disabled = true; btn.innerText = 'Saving...';
 
         try {
+            // 1. Handle Image Upload
             let imgUrl = document.getElementById('p-img-url').value;
             const fileInput = document.getElementById('p-img-file');
             if(fileInput.files.length > 0) {
+                btn.innerText = 'Uploading Image...';
                 imgUrl = await uploadToCloudinary(fileInput.files[0]);
             }
 
+            // 2. Upsert Main Product
             const payload = {
                 store_id: document.getElementById('p-store').value,
                 name: document.getElementById('p-name').value,
@@ -220,21 +252,30 @@ window.openProductModal = async (productId = null) => {
                 pid = data.id;
             }
 
+            // 3. Update Image
             if(imgUrl) {
                 await supabase.from('product_images').delete().eq('product_id', pid);
                 await supabase.from('product_images').insert({ product_id: pid, image_url: imgUrl, sort_order: 0 });
             }
 
+            // 4. Update Features
             const featureInputs = document.getElementsByName('feature[]');
-            const newFeatures = Array.from(featureInputs).map((inp, i) => ({ product_id: pid, feature: inp.value, sort_order: i })).filter(f => f.feature.trim() !== '');
+            const newFeatures = Array.from(featureInputs)
+                .map((inp, i) => ({ product_id: pid, feature: inp.value, sort_order: i }))
+                .filter(f => f.feature.trim() !== '');
+            
             await supabase.from('product_features').delete().eq('product_id', pid);
             if(newFeatures.length) await supabase.from('product_features').insert(newFeatures);
 
+            // 5. Update Specs
             const keys = document.getElementsByName('spec_key[]');
             const vals = document.getElementsByName('spec_val[]');
-            const newSpecs = Array.from(keys).map((k, i) => ({
-                product_id: pid, spec_key: k.value, spec_value: vals[i].value, sort_order: i
-            })).filter(s => s.spec_key.trim() !== '');
+            const newSpecs = Array.from(keys)
+                .map((k, i) => ({
+                    product_id: pid, spec_key: k.value, spec_value: vals[i].value, sort_order: i
+                }))
+                .filter(s => s.spec_key.trim() !== '');
+
             await supabase.from('product_specifications').delete().eq('product_id', pid);
             if(newSpecs.length) await supabase.from('product_specifications').insert(newSpecs);
 
@@ -244,20 +285,29 @@ window.openProductModal = async (productId = null) => {
         } catch (err) {
             console.error(err);
             alert('Error saving product: ' + err.message);
-            btn.disabled = false; btn.innerText = 'Retry';
+            btn.disabled = false; btn.innerText = originalText;
         }
     });
 };
 
+// Helper Functions attached to window for inline onclick access
 window.addFeatureRow = () => {
     const div = document.createElement('input');
-    div.type = 'text'; div.name = 'feature[]'; div.placeholder = 'Feature description'; div.className = 'input-field mt-2';
+    div.type = 'text'; 
+    div.name = 'feature[]'; 
+    div.placeholder = 'Feature description'; 
+    div.className = 'input-field mt-2 animate-fade-in';
     document.getElementById('features-container').appendChild(div);
+    div.focus();
 };
 
 window.addSpecRow = () => {
     const div = document.createElement('div');
-    div.className = 'flex gap-3 mt-2';
-    div.innerHTML = `<input type="text" name="spec_key[]" placeholder="Key" class="input-field w-1/3 bg-gray-50"><input type="text" name="spec_val[]" placeholder="Value" class="input-field flex-1">`;
+    div.className = 'flex gap-3 mt-2 animate-fade-in';
+    div.innerHTML = `
+        <input type="text" name="spec_key[]" placeholder="Key" class="input-field w-1/3 bg-gray-50 font-medium">
+        <input type="text" name="spec_val[]" placeholder="Value" class="input-field flex-1">
+    `;
     document.getElementById('specs-container').appendChild(div);
+    div.querySelector('input').focus();
 };
