@@ -4,7 +4,6 @@ import { supabase } from './supabase-client.js';
 // 1. RENDER EVENTS LIST
 // =======================
 export const renderEvents = async (container) => {
-    // Fetch events with count of attendees
     const { data: events, error } = await supabase
         .from('events')
         .select('*, event_attendance(count)')
@@ -27,13 +26,12 @@ export const renderEvents = async (container) => {
                     ? '<span class="bg-gray-100 text-gray-600 px-2 py-1 rounded text-xs font-bold">Completed</span>'
                     : '<span class="bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-bold">Upcoming</span>';
 
-                // Ultra-safe count access to prevent null errors
+                // Safe count access
                 let rsvpCount = 0;
                 if (e.event_attendance) {
                     if (Array.isArray(e.event_attendance)) {
                         if (e.event_attendance.length > 0) rsvpCount = e.event_attendance[0].count;
                     } else {
-                        // Handle case where it might be a single object
                         rsvpCount = e.event_attendance.count || 0;
                     }
                 }
@@ -183,6 +181,7 @@ window.openAttendance = async (eventId) => {
     const { data: event, error: evError } = await supabase.from('events').select('*').eq('id', eventId).single();
     if (evError) { console.error("Event fetch error:", evError); return; }
 
+    // FIX: Use users!user_id to avoid ambiguous column
     const { data: attendees, error: attError } = await supabase
         .from('event_attendance')
         .select('*, users!user_id(full_name, student_id, course)')
@@ -250,7 +249,8 @@ window.openAttendance = async (eventId) => {
                                 <td class="p-4 text-right">
                                     ${a.status === 'confirmed' 
                                         ? `<span class="text-green-600 font-bold text-xs flex items-center justify-end gap-1"><i data-lucide="check" class="w-3 h-3"></i> Awarded</span>` 
-                                        : `<button onclick="markPresent('${a.id}', '${eventId}', ${isEventCompleted})" class="bg-green-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed btn-mark-present" ${!isEventCompleted ? 'disabled' : ''}>
+                                        // FIX: Added 'this' parameter to pass the button element
+                                        : `<button onclick="markPresent(this, '${a.id}', '${eventId}', ${isEventCompleted})" class="bg-green-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed" ${!isEventCompleted ? 'disabled' : ''}>
                                             Mark Present
                                            </button>`
                                     }
@@ -267,9 +267,9 @@ window.openAttendance = async (eventId) => {
 };
 
 // =======================
-// 4. MARK PRESENT (Logic) - ROBUST VERSION
+// 4. MARK PRESENT (Logic) - FIXED & ROBUST
 // =======================
-window.markPresent = async (rowId, eventId, isCompleted) => {
+window.markPresent = async (btnElement, rowId, eventId, isCompleted) => {
     if (!isCompleted) {
         alert("You cannot mark attendance before the event is completed.");
         return;
@@ -277,21 +277,16 @@ window.markPresent = async (rowId, eventId, isCompleted) => {
 
     if (!confirm("Mark user as present? This will award points and CANNOT be undone.")) return;
 
-    // Visual Feedback: Find the button and set it to loading state
-    const btn = event.target.closest('button'); // Ensure we get the button even if icon clicked
-    const originalText = btn ? btn.innerText : 'Mark Present';
-    
-    if (btn) {
-        btn.innerText = "Processing...";
-        btn.disabled = true;
-    }
+    // 1. Immediate Visual Feedback
+    const originalText = btnElement.innerText;
+    btnElement.innerText = "Processing...";
+    btnElement.disabled = true;
 
     try {
         const { data: { user } } = await supabase.auth.getUser();
-        
-        if (!user) throw new Error("You must be logged in.");
+        if (!user) throw new Error("You are not logged in.");
 
-        // Get Admin Profile ID safely
+        // 2. Get Admin Profile ID safely
         const { data: admin, error: adminError } = await supabase
             .from('users')
             .select('id')
@@ -300,7 +295,7 @@ window.markPresent = async (rowId, eventId, isCompleted) => {
 
         if (adminError || !admin) throw new Error("Admin profile not found.");
 
-        // Update Status
+        // 3. Update Status - Trigger awards points
         const { error } = await supabase
             .from('event_attendance')
             .update({ 
@@ -311,18 +306,16 @@ window.markPresent = async (rowId, eventId, isCompleted) => {
 
         if (error) throw error;
 
-        // Success! Refresh the list immediately
+        // 4. Refresh List Immediately
         await openAttendance(eventId);
 
     } catch (err) {
         console.error("Mark Present Error:", err);
         alert('Error: ' + err.message);
         
-        // Reset button state on error
-        if (btn) {
-            btn.innerText = originalText;
-            btn.disabled = false;
-        }
+        // Reset button on failure
+        btnElement.innerText = originalText;
+        btnElement.disabled = false;
     }
 };
 
@@ -333,6 +326,8 @@ window.downloadAttendancePDF = async (eventId) => {
     const { jsPDF } = window.jspdf;
     
     const { data: event } = await supabase.from('events').select('*').eq('id', eventId).single();
+    
+    // FIX: Use users!user_id relation
     const { data: attendees } = await supabase
         .from('event_attendance')
         .select('status, users!user_id(full_name, student_id, course, email)')
