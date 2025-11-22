@@ -219,22 +219,21 @@ window.openChallengeModal = async (id = null) => {
     });
 };
 
-// Review Submissions (FIXED CRASH ISSUE)
+// Review Submissions (FIXED: Relation Ambiguity)
 window.openReviewModal = async (challengeId, title) => {
-    // Use maybeSingle or select to ensure we handle errors gracefully
+    // FIX: Explicitly select 'users!user_id' to avoid ambiguity
     const { data: subs, error } = await supabase
         .from('challenge_submissions')
-        .select('*, users(full_name, student_id)')
+        .select('*, users!user_id(full_name, student_id)')
         .eq('challenge_id', challengeId)
         .order('created_at', { ascending: false });
 
     if (error) {
         console.error("Error fetching submissions:", error);
-        alert("Failed to load submissions. Check console.");
+        alert("Failed to load submissions: " + error.message);
         return;
     }
 
-    // Ensure subs is an array even if null
     const safeSubs = subs || [];
 
     const html = `
@@ -295,17 +294,14 @@ window.decideSubmission = async (subId, status, cId, cTitle) => {
     const confirmMsg = status === 'approved' ? 'Approve this submission and award points?' : 'Reject this submission?';
     if (!confirm(confirmMsg)) return;
     
-    // Get current admin ID
     const { data: { user } } = await supabase.auth.getUser();
     const { data: adminUser } = await supabase.from('users').select('id').eq('auth_user_id', user.id).single();
 
-    // Update Status
     const { error } = await supabase
         .from('challenge_submissions')
         .update({ 
             status: status, 
             admin_id: adminUser?.id,
-            // Add updated_at timestamp
             updated_at: new Date().toISOString()
         })
         .eq('id', subId);
@@ -313,7 +309,6 @@ window.decideSubmission = async (subId, status, cId, cTitle) => {
     if (error) {
         alert('Error: ' + error.message);
     } else {
-        // Refresh the modal to show updated status
         openReviewModal(cId, cTitle);
     }
 };
@@ -336,7 +331,6 @@ window.openQuizModal = async (id = null) => {
         const { data: existing } = await supabase.from('daily_quizzes').select('*').eq('id', id).single();
         if(existing) {
             data = existing;
-            // Handle JSON parsing if Supabase returns string for jsonb
             if (typeof data.options === 'string') {
                 try { data.options = JSON.parse(data.options); } catch(e) {}
             }
@@ -393,11 +387,8 @@ window.openQuizModal = async (id = null) => {
     document.getElementById('quiz-form').addEventListener('submit', async (e) => {
         e.preventDefault();
         
-        // Collect Options
         const optionInputs = document.querySelectorAll('.q-option');
         const options = Array.from(optionInputs).map(inp => inp.value);
-        
-        // Get Correct Index
         const correctIndex = parseInt(document.querySelector('input[name="correct_option"]:checked').value);
 
         const payload = {
@@ -417,17 +408,18 @@ window.openQuizModal = async (id = null) => {
     });
 };
 
-// View Quiz Results
+// View Quiz Results (FIXED: Relation Ambiguity)
 window.viewQuizResults = async (quizId) => {
+    // FIX: Explicitly select 'users!user_id'
     const { data: results, error } = await supabase
         .from('quiz_submissions')
-        .select('*, users(full_name, student_id)')
+        .select('*, users!user_id(full_name, student_id)')
         .eq('quiz_id', quizId)
         .order('submitted_at', { ascending: false });
 
     if (error) {
         console.error(error);
-        alert("Could not load results.");
+        alert("Could not load results: " + error.message);
         return;
     }
 
