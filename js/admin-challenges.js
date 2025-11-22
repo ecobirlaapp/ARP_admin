@@ -219,14 +219,14 @@ window.openChallengeModal = async (id = null) => {
     });
 };
 
-// Review Submissions (FIXED: Relation Ambiguity)
+// Review Submissions (UPDATED: Shows ONLY Pending)
 window.openReviewModal = async (challengeId, title) => {
-    // FIX: Explicitly select 'users!user_id' to avoid ambiguity
-    // The previous error PGRST201 is solved by this specific syntax
+    // FIX: Added .eq('status', 'pending') filter
     const { data: subs, error } = await supabase
         .from('challenge_submissions')
         .select('*, users!user_id(full_name, student_id)')
         .eq('challenge_id', challengeId)
+        .eq('status', 'pending') // <--- THIS IS THE CHANGE
         .order('created_at', { ascending: false });
 
     if (error) {
@@ -247,7 +247,7 @@ window.openReviewModal = async (challengeId, title) => {
                 <button onclick="closeModal()" class="p-2 bg-gray-100 rounded-full hover:bg-gray-200"><i data-lucide="x" class="w-5 h-5"></i></button>
             </div>
             <div class="p-6 overflow-y-auto space-y-4">
-                ${safeSubs.length === 0 ? '<p class="text-center text-gray-500 py-10">No submissions found for this challenge.</p>' : ''}
+                ${safeSubs.length === 0 ? '<p class="text-center text-gray-500 py-10">No pending submissions for this challenge.</p>' : ''}
                 
                 ${safeSubs.map(s => `
                     <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-200 flex flex-col sm:flex-row gap-4 items-start">
@@ -263,25 +263,19 @@ window.openReviewModal = async (challengeId, title) => {
                                     <h4 class="font-bold text-gray-900">${s.users?.full_name || 'Unknown User'}</h4>
                                     <p class="text-xs text-gray-500">${s.users?.student_id || 'N/A'}</p>
                                 </div>
-                                <span class="px-2 py-1 rounded text-[10px] font-bold uppercase ${
-                                    s.status === 'approved' ? 'bg-green-100 text-green-700' :
-                                    s.status === 'rejected' ? 'bg-red-100 text-red-700' :
-                                    'bg-yellow-100 text-yellow-700'
-                                }">${s.status}</span>
+                                <span class="px-2 py-1 rounded text-[10px] font-bold uppercase bg-yellow-100 text-yellow-700">PENDING</span>
                             </div>
                             
                             <p class="text-xs text-gray-400 mt-2 mb-4">Submitted: ${new Date(s.created_at).toLocaleString()}</p>
                             
-                            ${s.status === 'pending' ? `
-                                <div class="flex gap-3 border-t pt-3">
-                                    <button onclick="decideSubmission('${s.id}', 'approved', '${challengeId}', '${title}')" class="flex-1 bg-green-600 text-white py-2 rounded-lg text-sm font-bold hover:bg-green-700 transition shadow-sm">
-                                        Accept
-                                    </button>
-                                    <button onclick="decideSubmission('${s.id}', 'rejected', '${challengeId}', '${title}')" class="flex-1 bg-white border border-gray-300 text-gray-700 py-2 rounded-lg text-sm font-bold hover:bg-gray-50 transition shadow-sm">
-                                        Reject
-                                    </button>
-                                </div>
-                            ` : ''}
+                            <div class="flex gap-3 border-t pt-3">
+                                <button onclick="decideSubmission('${s.id}', 'approved', '${challengeId}', '${title}')" class="flex-1 bg-green-600 text-white py-2 rounded-lg text-sm font-bold hover:bg-green-700 transition shadow-sm">
+                                    Accept
+                                </button>
+                                <button onclick="decideSubmission('${s.id}', 'rejected', '${challengeId}', '${title}')" class="flex-1 bg-white border border-gray-300 text-gray-700 py-2 rounded-lg text-sm font-bold hover:bg-gray-50 transition shadow-sm">
+                                    Reject
+                                </button>
+                            </div>
                         </div>
                     </div>
                 `).join('')}
