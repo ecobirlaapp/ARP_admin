@@ -5,6 +5,7 @@ import { supabase } from './supabase-client.js';
 // =======================
 export const renderEvents = async (container) => {
     // Fetch events with count of attendees
+    // We use head:false to get the actual data, and the foreign key relation for count
     const { data: events, error } = await supabase
         .from('events')
         .select('*, event_attendance(count)')
@@ -27,8 +28,10 @@ export const renderEvents = async (container) => {
                     ? '<span class="bg-gray-100 text-gray-600 px-2 py-1 rounded text-xs font-bold">Completed</span>'
                     : '<span class="bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-bold">Upcoming</span>';
 
-                // Safe count access
-                const rsvpCount = e.event_attendance && e.event_attendance[0] ? e.event_attendance[0].count : 0;
+                // FIX: Safely access the count array. If null or empty, default to 0.
+                const rsvpCount = (e.event_attendance && e.event_attendance.length > 0) 
+                    ? e.event_attendance[0].count 
+                    : 0;
 
                 return `
                 <div class="bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col overflow-hidden hover:shadow-md transition">
