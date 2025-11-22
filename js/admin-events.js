@@ -28,10 +28,15 @@ export const renderEvents = async (container) => {
                     ? '<span class="bg-gray-100 text-gray-600 px-2 py-1 rounded text-xs font-bold">Completed</span>'
                     : '<span class="bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-bold">Upcoming</span>';
 
-                // FIX: Safely access the count array. If null or empty, default to 0.
-                const rsvpCount = (e.event_attendance && e.event_attendance.length > 0) 
-                    ? e.event_attendance[0].count 
-                    : 0;
+                // FIX: Ultra-safe count access
+                let rsvpCount = 0;
+                if (e.event_attendance) {
+                    if (Array.isArray(e.event_attendance)) {
+                        if (e.event_attendance.length > 0) rsvpCount = e.event_attendance[0].count;
+                    } else {
+                        rsvpCount = e.event_attendance.count || 0;
+                    }
+                }
 
                 return `
                 <div class="bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col overflow-hidden hover:shadow-md transition">
@@ -86,7 +91,6 @@ window.openEventModal = async (eventId = null) => {
         const { data } = await supabase.from('events').select('*').eq('id', eventId).single();
         if (data) {
             evt = data;
-            // Format dates for input safely
             if(evt.start_at) evt.start_at = new Date(evt.start_at).toISOString().slice(0, 16);
             if(evt.end_at) evt.end_at = new Date(evt.end_at).toISOString().slice(0, 16);
         }
@@ -176,25 +180,16 @@ window.openEventModal = async (eventId = null) => {
 // 3. ATTENDANCE & RSVP MANAGER
 // =======================
 window.openAttendance = async (eventId) => {
-    // Fetch Event Details
     const { data: event, error: evError } = await supabase.from('events').select('*').eq('id', eventId).single();
     
-    if (evError) {
-        console.error("Event fetch error:", evError);
-        return;
-    }
+    if (evError) { console.error("Event fetch error:", evError); return; }
 
-    // Fetch Attendees (FIX: Added users!user_id to fix ambiguous column error)
     const { data: attendees, error: attError } = await supabase
         .from('event_attendance')
         .select('*, users!user_id(full_name, student_id, course)')
         .eq('event_id', eventId);
 
-    if (attError) {
-        console.error("Attendance fetch error:", attError);
-        alert("Failed to load attendance list. Check console.");
-        return;
-    }
+    if (attError) { console.error("Attendance fetch error:", attError); return; }
 
     const safeAttendees = attendees || [];
     const isEventCompleted = new Date(event.end_at) < new Date();
@@ -284,10 +279,8 @@ window.markPresent = async (rowId, eventId, isCompleted) => {
     if (!confirm("Mark user as present? This will award points and CANNOT be undone.")) return;
 
     const { data: { user } } = await supabase.auth.getUser();
-    // Get Admin Profile ID (Using Auth ID Map)
     const { data: admin } = await supabase.from('users').select('id').eq('auth_user_id', user.id).single();
 
-    // Update Status - SQL Trigger handles Points Awarding automatically
     const { error } = await supabase
         .from('event_attendance')
         .update({ 
@@ -297,7 +290,7 @@ window.markPresent = async (rowId, eventId, isCompleted) => {
         .eq('id', rowId);
 
     if (error) alert('Error: ' + error.message);
-    else openAttendance(eventId); // Refresh list
+    else openAttendance(eventId);
 };
 
 // =======================
@@ -306,7 +299,6 @@ window.markPresent = async (rowId, eventId, isCompleted) => {
 window.downloadAttendancePDF = async (eventId) => {
     const { jsPDF } = window.jspdf;
     
-    // Fetch Data
     const { data: event } = await supabase.from('events').select('*').eq('id', eventId).single();
     const { data: attendees } = await supabase
         .from('event_attendance')
@@ -316,10 +308,8 @@ window.downloadAttendancePDF = async (eventId) => {
 
     const doc = new jsPDF();
 
-    // --- Header Design ---
-    doc.setFillColor(22, 163, 74); // Green Brand Color
+    doc.setFillColor(22, 163, 74);
     doc.rect(0, 0, 210, 40, 'F');
-    
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(22);
     doc.setFont("helvetica", "bold");
@@ -329,7 +319,6 @@ window.downloadAttendancePDF = async (eventId) => {
     doc.setFont("helvetica", "normal");
     doc.text("EcoCampus Admin Panel", 14, 28);
 
-    // --- Event Info Box ---
     doc.setTextColor(0, 0, 0);
     doc.setFontSize(12);
     doc.setFont("helvetica", "bold");
@@ -342,7 +331,6 @@ window.downloadAttendancePDF = async (eventId) => {
     doc.text(`Location: ${event.location}`, 14, 68);
     doc.text(`Total RSVPs: ${attendees.length}`, 14, 74);
 
-    // --- Table ---
     const tableData = attendees.map(a => [
         a.users?.student_id || 'N/A',
         a.users?.full_name || 'Unknown',
@@ -360,7 +348,6 @@ window.downloadAttendancePDF = async (eventId) => {
         alternateRowStyles: { fillColor: [240, 253, 244] }
     });
 
-    // --- Footer ---
     const pageCount = doc.internal.getNumberOfPages();
     for(let i = 1; i <= pageCount; i++) {
         doc.setPage(i);
