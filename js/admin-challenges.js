@@ -222,6 +222,7 @@ window.openChallengeModal = async (id = null) => {
 // Review Submissions (FIXED: Relation Ambiguity)
 window.openReviewModal = async (challengeId, title) => {
     // FIX: Explicitly select 'users!user_id' to avoid ambiguity
+    // The previous error PGRST201 is solved by this specific syntax
     const { data: subs, error } = await supabase
         .from('challenge_submissions')
         .select('*, users!user_id(full_name, student_id)')
