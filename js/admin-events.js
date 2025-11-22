@@ -5,7 +5,6 @@ import { supabase } from './supabase-client.js';
 // =======================
 export const renderEvents = async (container) => {
     // Fetch events with count of attendees
-    // We use head:false to get the actual data, and the foreign key relation for count
     const { data: events, error } = await supabase
         .from('events')
         .select('*, event_attendance(count)')
@@ -28,12 +27,13 @@ export const renderEvents = async (container) => {
                     ? '<span class="bg-gray-100 text-gray-600 px-2 py-1 rounded text-xs font-bold">Completed</span>'
                     : '<span class="bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-bold">Upcoming</span>';
 
-                // FIX: Ultra-safe count access
+                // Ultra-safe count access to prevent null errors
                 let rsvpCount = 0;
                 if (e.event_attendance) {
                     if (Array.isArray(e.event_attendance)) {
                         if (e.event_attendance.length > 0) rsvpCount = e.event_attendance[0].count;
                     } else {
+                        // Handle case where it might be a single object
                         rsvpCount = e.event_attendance.count || 0;
                     }
                 }
@@ -181,7 +181,6 @@ window.openEventModal = async (eventId = null) => {
 // =======================
 window.openAttendance = async (eventId) => {
     const { data: event, error: evError } = await supabase.from('events').select('*').eq('id', eventId).single();
-    
     if (evError) { console.error("Event fetch error:", evError); return; }
 
     const { data: attendees, error: attError } = await supabase
@@ -251,7 +250,7 @@ window.openAttendance = async (eventId) => {
                                 <td class="p-4 text-right">
                                     ${a.status === 'confirmed' 
                                         ? `<span class="text-green-600 font-bold text-xs flex items-center justify-end gap-1"><i data-lucide="check" class="w-3 h-3"></i> Awarded</span>` 
-                                        : `<button onclick="markPresent('${a.id}', '${eventId}', ${isEventCompleted})" class="bg-green-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed" ${!isEventCompleted ? 'disabled' : ''}>
+                                        : `<button onclick="markPresent('${a.id}', '${eventId}', ${isEventCompleted})" class="bg-green-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed btn-mark-present" ${!isEventCompleted ? 'disabled' : ''}>
                                             Mark Present
                                            </button>`
                                     }
@@ -268,7 +267,7 @@ window.openAttendance = async (eventId) => {
 };
 
 // =======================
-// 4. MARK PRESENT (Logic)
+// 4. MARK PRESENT (Logic) - ROBUST VERSION
 // =======================
 window.markPresent = async (rowId, eventId, isCompleted) => {
     if (!isCompleted) {
@@ -278,14 +277,19 @@ window.markPresent = async (rowId, eventId, isCompleted) => {
 
     if (!confirm("Mark user as present? This will award points and CANNOT be undone.")) return;
 
-    const btn = event.target; // Get the button element
-    const originalText = btn.innerText;
-    btn.innerText = "Processing...";
-    btn.disabled = true;
+    // Visual Feedback: Find the button and set it to loading state
+    const btn = event.target.closest('button'); // Ensure we get the button even if icon clicked
+    const originalText = btn ? btn.innerText : 'Mark Present';
+    
+    if (btn) {
+        btn.innerText = "Processing...";
+        btn.disabled = true;
+    }
 
     try {
         const { data: { user } } = await supabase.auth.getUser();
-        if (!user) throw new Error("You are not logged in.");
+        
+        if (!user) throw new Error("You must be logged in.");
 
         // Get Admin Profile ID safely
         const { data: admin, error: adminError } = await supabase
@@ -296,7 +300,7 @@ window.markPresent = async (rowId, eventId, isCompleted) => {
 
         if (adminError || !admin) throw new Error("Admin profile not found.");
 
-        // Update Status - SQL Trigger handles Points Awarding automatically
+        // Update Status
         const { error } = await supabase
             .from('event_attendance')
             .update({ 
@@ -307,17 +311,21 @@ window.markPresent = async (rowId, eventId, isCompleted) => {
 
         if (error) throw error;
 
-        // Success! Refresh the list
+        // Success! Refresh the list immediately
         await openAttendance(eventId);
 
     } catch (err) {
         console.error("Mark Present Error:", err);
         alert('Error: ' + err.message);
+        
         // Reset button state on error
-        btn.innerText = originalText;
-        btn.disabled = false;
+        if (btn) {
+            btn.innerText = originalText;
+            btn.disabled = false;
+        }
     }
 };
+
 // =======================
 // 5. GENERATE PDF
 // =======================
