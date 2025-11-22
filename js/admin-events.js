@@ -4,6 +4,7 @@ import { supabase } from './supabase-client.js';
 // 1. RENDER EVENTS LIST
 // =======================
 export const renderEvents = async (container) => {
+    // Fetch events with count of attendees
     const { data: events, error } = await supabase
         .from('events')
         .select('*, event_attendance(count)')
@@ -26,10 +27,13 @@ export const renderEvents = async (container) => {
                     ? '<span class="bg-gray-100 text-gray-600 px-2 py-1 rounded text-xs font-bold">Completed</span>'
                     : '<span class="bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-bold">Upcoming</span>';
 
+                // Safe count access
+                const rsvpCount = e.event_attendance && e.event_attendance[0] ? e.event_attendance[0].count : 0;
+
                 return `
                 <div class="bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col overflow-hidden hover:shadow-md transition">
                     <div class="h-32 bg-gray-100 relative">
-                        <img src="${e.poster_url || 'https://placehold.co/600x400?text=Event'}" class="w-full h-full object-cover">
+                        <img src="${e.poster_url || 'https://placehold.co/600x400?text=Event'}" class="w-full h-full object-cover" onerror="this.src='https://placehold.co/600x400?text=No+Image'">
                         <div class="absolute top-3 right-3 bg-white/90 px-2 py-1 rounded-md text-xs font-bold shadow-sm">
                             +${e.points_reward} pts
                         </div>
@@ -46,7 +50,7 @@ export const renderEvents = async (container) => {
                         
                         <div class="mt-auto flex items-center justify-between pt-4 border-t border-gray-100">
                             <div class="text-xs text-gray-500">
-                                <strong class="text-gray-800 text-sm">${e.event_attendance[0]?.count || 0}</strong> RSVPs
+                                <strong class="text-gray-800 text-sm">${rsvpCount}</strong> RSVPs
                             </div>
                             <div class="flex gap-2">
                                 <button onclick="openEventModal('${e.id}')" class="p-2 text-gray-500 hover:bg-gray-100 rounded-lg transition">
@@ -79,7 +83,7 @@ window.openEventModal = async (eventId = null) => {
         const { data } = await supabase.from('events').select('*').eq('id', eventId).single();
         if (data) {
             evt = data;
-            // Format dates for input
+            // Format dates for input safely
             if(evt.start_at) evt.start_at = new Date(evt.start_at).toISOString().slice(0, 16);
             if(evt.end_at) evt.end_at = new Date(evt.end_at).toISOString().slice(0, 16);
         }
@@ -103,11 +107,11 @@ window.openEventModal = async (eventId = null) => {
                 <div class="grid grid-cols-2 gap-4">
                     <div>
                         <label class="label">Start Time</label>
-                        <input type="datetime-local" id="e-start" value="${evt.start_at}" class="input-field" required>
+                        <input type="datetime-local" id="e-start" value="${evt.start_at || ''}" class="input-field" required>
                     </div>
                     <div>
                         <label class="label">End Time</label>
-                        <input type="datetime-local" id="e-end" value="${evt.end_at}" class="input-field" required>
+                        <input type="datetime-local" id="e-end" value="${evt.end_at || ''}" class="input-field" required>
                     </div>
                 </div>
                 <div class="grid grid-cols-2 gap-4">
@@ -127,7 +131,7 @@ window.openEventModal = async (eventId = null) => {
                     </div>
                     <div>
                         <label class="label">Poster URL</label>
-                        <input type="text" id="e-poster" value="${evt.poster_url}" class="input-field" placeholder="https://...">
+                        <input type="text" id="e-poster" value="${evt.poster_url || ''}" class="input-field" placeholder="https://...">
                     </div>
                 </div>
 
@@ -170,14 +174,26 @@ window.openEventModal = async (eventId = null) => {
 // =======================
 window.openAttendance = async (eventId) => {
     // Fetch Event Details
-    const { data: event } = await supabase.from('events').select('*').eq('id', eventId).single();
+    const { data: event, error: evError } = await supabase.from('events').select('*').eq('id', eventId).single();
     
-    // Fetch Attendees
-    const { data: attendees } = await supabase
+    if (evError) {
+        console.error("Event fetch error:", evError);
+        return;
+    }
+
+    // Fetch Attendees (FIX: Added users!user_id to fix ambiguous column error)
+    const { data: attendees, error: attError } = await supabase
         .from('event_attendance')
-        .select('*, users(full_name, student_id, course)')
+        .select('*, users!user_id(full_name, student_id, course)')
         .eq('event_id', eventId);
 
+    if (attError) {
+        console.error("Attendance fetch error:", attError);
+        alert("Failed to load attendance list. Check console.");
+        return;
+    }
+
+    const safeAttendees = attendees || [];
     const isEventCompleted = new Date(event.end_at) < new Date();
 
     const html = `
@@ -193,8 +209,8 @@ window.openAttendance = async (eventId) => {
                 
                 <div class="flex justify-between items-center">
                     <div class="flex gap-4 text-sm">
-                        <div><strong>${attendees.length}</strong> Registered</div>
-                        <div><strong>${attendees.filter(a => a.status === 'confirmed').length}</strong> Present</div>
+                        <div><strong>${safeAttendees.length}</strong> Registered</div>
+                        <div><strong>${safeAttendees.filter(a => a.status === 'confirmed').length}</strong> Present</div>
                     </div>
                     <button onclick="downloadAttendancePDF('${eventId}')" class="bg-gray-900 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-black flex items-center gap-2 transition">
                         <i data-lucide="file-down" class="w-4 h-4"></i> Download PDF
@@ -220,13 +236,13 @@ window.openAttendance = async (eventId) => {
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-gray-200 bg-white">
-                        ${attendees.map(a => `
+                        ${safeAttendees.map(a => `
                             <tr>
                                 <td class="p-4">
-                                    <div class="font-bold text-gray-900">${a.users.full_name}</div>
-                                    <div class="text-xs text-gray-500">${a.users.student_id}</div>
+                                    <div class="font-bold text-gray-900">${a.users?.full_name || 'Unknown'}</div>
+                                    <div class="text-xs text-gray-500">${a.users?.student_id || 'N/A'}</div>
                                 </td>
-                                <td class="p-4 text-gray-600">${a.users.course}</td>
+                                <td class="p-4 text-gray-600">${a.users?.course || '-'}</td>
                                 <td class="p-4">
                                     <span class="px-2 py-1 rounded text-[10px] font-bold uppercase ${
                                         a.status === 'confirmed' ? 'bg-green-100 text-green-700' :
@@ -244,7 +260,7 @@ window.openAttendance = async (eventId) => {
                                 </td>
                             </tr>
                         `).join('')}
-                        ${attendees.length === 0 ? '<tr><td colspan="4" class="p-6 text-center text-gray-500">No RSVPs yet.</td></tr>' : ''}
+                        ${safeAttendees.length === 0 ? '<tr><td colspan="4" class="p-6 text-center text-gray-500">No RSVPs yet.</td></tr>' : ''}
                     </tbody>
                 </table>
             </div>
@@ -265,7 +281,7 @@ window.markPresent = async (rowId, eventId, isCompleted) => {
     if (!confirm("Mark user as present? This will award points and CANNOT be undone.")) return;
 
     const { data: { user } } = await supabase.auth.getUser();
-    // Get Admin Profile ID
+    // Get Admin Profile ID (Using Auth ID Map)
     const { data: admin } = await supabase.from('users').select('id').eq('auth_user_id', user.id).single();
 
     // Update Status - SQL Trigger handles Points Awarding automatically
@@ -291,9 +307,9 @@ window.downloadAttendancePDF = async (eventId) => {
     const { data: event } = await supabase.from('events').select('*').eq('id', eventId).single();
     const { data: attendees } = await supabase
         .from('event_attendance')
-        .select('status, users(full_name, student_id, course, email)')
+        .select('status, users!user_id(full_name, student_id, course, email)')
         .eq('event_id', eventId)
-        .order('status', { ascending: true }); // Confirmed first if sorted alphabetically, or sort in JS
+        .order('status', { ascending: true });
 
     const doc = new jsPDF();
 
@@ -325,9 +341,9 @@ window.downloadAttendancePDF = async (eventId) => {
 
     // --- Table ---
     const tableData = attendees.map(a => [
-        a.users.student_id,
-        a.users.full_name,
-        a.users.course,
+        a.users?.student_id || 'N/A',
+        a.users?.full_name || 'Unknown',
+        a.users?.course || '-',
         a.status.toUpperCase()
     ]);
 
@@ -338,7 +354,7 @@ window.downloadAttendancePDF = async (eventId) => {
         theme: 'grid',
         headStyles: { fillColor: [22, 163, 74] },
         styles: { fontSize: 9, cellPadding: 3 },
-        alternateRowStyles: { fillColor: [240, 253, 244] } // Light green rows
+        alternateRowStyles: { fillColor: [240, 253, 244] }
     });
 
     // --- Footer ---
@@ -350,5 +366,5 @@ window.downloadAttendancePDF = async (eventId) => {
         doc.text(`Generated on ${new Date().toLocaleDateString()} - Page ${i} of ${pageCount}`, 14, 290);
     }
 
-    doc.save(`Attendance_${event.title.substring(0, 15)}.pdf`);
+    doc.save(`Attendance_${event.title.substring(0, 15).replace(/\s+/g, '_')}.pdf`);
 };
