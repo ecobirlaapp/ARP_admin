@@ -278,21 +278,46 @@ window.markPresent = async (rowId, eventId, isCompleted) => {
 
     if (!confirm("Mark user as present? This will award points and CANNOT be undone.")) return;
 
-    const { data: { user } } = await supabase.auth.getUser();
-    const { data: admin } = await supabase.from('users').select('id').eq('auth_user_id', user.id).single();
+    const btn = event.target; // Get the button element
+    const originalText = btn.innerText;
+    btn.innerText = "Processing...";
+    btn.disabled = true;
 
-    const { error } = await supabase
-        .from('event_attendance')
-        .update({ 
-            status: 'confirmed',
-            admin_id: admin?.id 
-        })
-        .eq('id', rowId);
+    try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) throw new Error("You are not logged in.");
 
-    if (error) alert('Error: ' + error.message);
-    else openAttendance(eventId);
+        // Get Admin Profile ID safely
+        const { data: admin, error: adminError } = await supabase
+            .from('users')
+            .select('id')
+            .eq('auth_user_id', user.id)
+            .single();
+
+        if (adminError || !admin) throw new Error("Admin profile not found.");
+
+        // Update Status - SQL Trigger handles Points Awarding automatically
+        const { error } = await supabase
+            .from('event_attendance')
+            .update({ 
+                status: 'confirmed',
+                admin_id: admin.id 
+            })
+            .eq('id', rowId);
+
+        if (error) throw error;
+
+        // Success! Refresh the list
+        await openAttendance(eventId);
+
+    } catch (err) {
+        console.error("Mark Present Error:", err);
+        alert('Error: ' + err.message);
+        // Reset button state on error
+        btn.innerText = originalText;
+        btn.disabled = false;
+    }
 };
-
 // =======================
 // 5. GENERATE PDF
 // =======================
