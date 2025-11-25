@@ -38,10 +38,6 @@ export const renderAnalytics = async (container) => {
                 <div class="lg:col-span-2 bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
                     <div class="flex justify-between items-center mb-6">
                         <h3 class="text-lg font-bold text-gray-800">Activity Volume (Last 7 Days)</h3>
-                        <select id="chart-filter" class="text-sm border rounded-lg px-3 py-1 bg-gray-50">
-                            <option value="7">Last 7 Days</option>
-                            <option value="30">Last 30 Days</option>
-                        </select>
                     </div>
                     <div class="h-64 w-full">
                         <canvas id="trafficChart"></canvas>
@@ -74,7 +70,6 @@ export const renderAnalytics = async (container) => {
                     </div>
                 </div>
                 <div id="activity-timeline" class="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar relative">
-                    <!-- Timeline items injected here -->
                     <div class="flex justify-center items-center h-full text-gray-400">
                         <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-300"></div>
                     </div>
@@ -85,26 +80,28 @@ export const renderAnalytics = async (container) => {
     
     if(window.lucide) window.lucide.createIcons();
 
-    // Initialize
     await fetchAndRenderData();
     setupRealtimeSubscription();
     
     // Search Debounce
     let timeout = null;
-    document.getElementById('feed-search').addEventListener('input', (e) => {
-        clearTimeout(timeout);
-        timeout = setTimeout(() => filterTimeline(e.target.value), 300);
-    });
+    const searchInput = document.getElementById('feed-search');
+    if(searchInput) {
+        searchInput.addEventListener('input', (e) => {
+            clearTimeout(timeout);
+            timeout = setTimeout(() => filterTimeline(e.target.value), 300);
+        });
+    }
 };
 
 // =======================
 // 2. DATA FETCHING & PROCESSING
 // =======================
 const fetchAndRenderData = async () => {
-    // Fetch last 100 logs with user details
+    // FIX: Explicitly use users!user_id to resolve ambiguous relationship
     const { data: logs, error } = await supabase
         .from('user_activity_log')
-        .select('*, users(full_name, role)') // Assumes relationship exists
+        .select('*, users!user_id(full_name, role)') 
         .order('created_at', { ascending: false })
         .limit(100);
 
@@ -113,54 +110,47 @@ const fetchAndRenderData = async () => {
         return;
     }
 
-    // 1. Update KPIs
     updateKPIs(logs);
-
-    // 2. Render Charts
     renderCharts(logs);
-
-    // 3. Render Timeline
     renderTimeline(logs);
 };
 
 const updateKPIs = (logs) => {
-    // Simple client-side calculation for demo purposes
-    // For production with huge data, use SQL COUNT queries instead
     const today = new Date().toISOString().split('T')[0];
     
     const activeToday = new Set(logs.filter(l => l.created_at.startsWith(today)).map(l => l.user_id)).size;
-    const purchases = logs.filter(l => l.action_type === 'purchase_success').length; // Example type
-    const redeemed = logs.filter(l => l.action_type === 'redeem_code_success').length;
+    const purchases = logs.filter(l => l.action_type.includes('purchase') || l.action_type.includes('order')).length;
+    const redeemed = logs.filter(l => l.action_type.includes('redeem')).length;
     const errors = logs.filter(l => l.action_type.includes('error') || l.action_type.includes('fail')).length;
     
-    // To make it look realistic if data is sparse, we might fetch specific totals from DB, 
-    // but here we use the log slice for "Recent Activity Metrics"
-    document.getElementById('kpi-active-users').innerText = activeToday;
-    document.getElementById('kpi-total-purchases').innerText = purchases;
-    document.getElementById('kpi-points-redeemed').innerText = redeemed;
-    document.getElementById('kpi-error-rate').innerText = errors > 0 ? `${((errors/logs.length)*100).toFixed(1)}%` : '0%';
+    const setVal = (id, val) => {
+        const el = document.getElementById(id);
+        if(el) el.innerText = val;
+    };
+
+    setVal('kpi-active-users', activeToday || '-'); // Fallback if 0 to show activity exists
+    setVal('kpi-total-purchases', purchases);
+    setVal('kpi-points-redeemed', redeemed);
+    setVal('kpi-error-rate', errors > 0 ? `${((errors/logs.length)*100).toFixed(1)}%` : '0%');
 };
 
 // =======================
 // 3. CHART RENDERING
 // =======================
 const renderCharts = (logs) => {
-    // Destroy existing charts if re-rendering
     if (charts.traffic) charts.traffic.destroy();
     if (charts.distribution) charts.distribution.destroy();
 
-    // --- Data Prep for Distribution ---
     const categories = { Engagement: 0, Commerce: 0, Gamification: 0, Issues: 0 };
     logs.forEach(l => {
-        const type = l.action_type;
+        const type = l.action_type.toLowerCase();
         if (type.includes('login') || type.includes('view')) categories.Engagement++;
         else if (type.includes('purchase') || type.includes('redeem') || type.includes('order')) categories.Commerce++;
         else if (type.includes('quiz') || type.includes('checkin') || type.includes('challenge')) categories.Gamification++;
-        else if (type.includes('error') || type.includes('fail')) categories.Issues++;
-        else categories.Engagement++; // Default fallback
+        else if (type.includes('error') || type.includes('fail') || type.includes('reject')) categories.Issues++;
+        else categories.Engagement++; 
     });
 
-    // --- Data Prep for Traffic (Last 7 Days) ---
     const last7Days = [...Array(7)].map((_, i) => {
         const d = new Date();
         d.setDate(d.getDate() - i);
@@ -169,72 +159,79 @@ const renderCharts = (logs) => {
 
     const trafficData = last7Days.map(date => logs.filter(l => l.created_at.startsWith(date)).length);
 
-    // --- Chart 1: Traffic Line ---
-    const ctxTraffic = document.getElementById('trafficChart').getContext('2d');
-    charts.traffic = new Chart(ctxTraffic, {
-        type: 'line',
-        data: {
-            labels: last7Days.map(d => new Date(d).toLocaleDateString('en-US', { weekday: 'short' })),
-            datasets: [{
-                label: 'Activities',
-                data: trafficData,
-                borderColor: '#16a34a', // Brand Green
-                backgroundColor: (context) => {
-                    const ctx = context.chart.ctx;
-                    const gradient = ctx.createLinearGradient(0, 0, 0, 200);
-                    gradient.addColorStop(0, 'rgba(22, 163, 74, 0.2)');
-                    gradient.addColorStop(1, 'rgba(22, 163, 74, 0)');
-                    return gradient;
-                },
-                fill: true,
-                tension: 0.4,
-                pointRadius: 4,
-                pointHoverRadius: 6
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: { legend: { display: false } },
-            scales: {
-                y: { beginAtZero: true, grid: { color: '#f3f4f6' } },
-                x: { grid: { display: false } }
+    // Traffic Chart
+    const trafficEl = document.getElementById('trafficChart');
+    if(trafficEl) {
+        const ctxTraffic = trafficEl.getContext('2d');
+        charts.traffic = new Chart(ctxTraffic, {
+            type: 'line',
+            data: {
+                labels: last7Days.map(d => new Date(d).toLocaleDateString('en-US', { weekday: 'short' })),
+                datasets: [{
+                    label: 'Activities',
+                    data: trafficData,
+                    borderColor: '#16a34a',
+                    backgroundColor: (context) => {
+                        const ctx = context.chart.ctx;
+                        const gradient = ctx.createLinearGradient(0, 0, 0, 200);
+                        gradient.addColorStop(0, 'rgba(22, 163, 74, 0.2)');
+                        gradient.addColorStop(1, 'rgba(22, 163, 74, 0)');
+                        return gradient;
+                    },
+                    fill: true,
+                    tension: 0.4,
+                    pointRadius: 4,
+                    pointHoverRadius: 6
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    y: { beginAtZero: true, grid: { color: '#f3f4f6' } },
+                    x: { grid: { display: false } }
+                }
             }
-        }
-    });
+        });
+    }
 
-    // --- Chart 2: Distribution Doughnut ---
-    const ctxDist = document.getElementById('distributionChart').getContext('2d');
-    charts.distribution = new Chart(ctxDist, {
-        type: 'doughnut',
-        data: {
-            labels: Object.keys(categories),
-            datasets: [{
-                data: Object.values(categories),
-                backgroundColor: ['#3b82f6', '#10b981', '#8b5cf6', '#ef4444'], // Blue, Green, Purple, Red
-                borderWidth: 0,
-                hoverOffset: 4
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            cutout: '75%',
-            plugins: { legend: { display: false } }
-        }
-    });
+    // Distribution Chart
+    const distEl = document.getElementById('distributionChart');
+    if(distEl) {
+        const ctxDist = distEl.getContext('2d');
+        charts.distribution = new Chart(ctxDist, {
+            type: 'doughnut',
+            data: {
+                labels: Object.keys(categories),
+                datasets: [{
+                    data: Object.values(categories),
+                    backgroundColor: ['#3b82f6', '#10b981', '#8b5cf6', '#ef4444'],
+                    borderWidth: 0,
+                    hoverOffset: 4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                cutout: '75%',
+                plugins: { legend: { display: false } }
+            }
+        });
+    }
 
-    // Custom Legend
     const legendContainer = document.getElementById('legend-container');
-    legendContainer.innerHTML = Object.entries(categories).map(([label, count], i) => `
-        <div class="flex justify-between items-center text-sm">
-            <div class="flex items-center gap-2">
-                <span class="w-3 h-3 rounded-full" style="background-color: ${['#3b82f6', '#10b981', '#8b5cf6', '#ef4444'][i]}"></span>
-                <span class="text-gray-600">${label}</span>
+    if(legendContainer) {
+        legendContainer.innerHTML = Object.entries(categories).map(([label, count], i) => `
+            <div class="flex justify-between items-center text-sm">
+                <div class="flex items-center gap-2">
+                    <span class="w-3 h-3 rounded-full" style="background-color: ${['#3b82f6', '#10b981', '#8b5cf6', '#ef4444'][i]}"></span>
+                    <span class="text-gray-600">${label}</span>
+                </div>
+                <span class="font-bold text-gray-900">${count}</span>
             </div>
-            <span class="font-bold text-gray-900">${count}</span>
-        </div>
-    `).join('');
+        `).join('');
+    }
 };
 
 // =======================
@@ -242,6 +239,8 @@ const renderCharts = (logs) => {
 // =======================
 const renderTimeline = (logs) => {
     const container = document.getElementById('activity-timeline');
+    if(!container) return;
+    
     container.innerHTML = '';
 
     if (logs.length === 0) {
@@ -249,14 +248,12 @@ const renderTimeline = (logs) => {
         return;
     }
 
-    // Group by Date
     let lastDate = '';
 
     logs.forEach(log => {
         const date = new Date(log.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
         const time = new Date(log.created_at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
         
-        // Add Date Header if new day
         if (date !== lastDate) {
             container.innerHTML += `
                 <div class="sticky top-0 z-10 bg-white/90 backdrop-blur-sm py-2 mb-4 border-b border-gray-100">
@@ -266,33 +263,28 @@ const renderTimeline = (logs) => {
             lastDate = date;
         }
 
-        // Determine Style based on Action Type
         const style = getLogStyle(log.action_type);
         
-        // Parse Metadata for rich details
-        const meta = typeof log.metadata === 'string' ? JSON.parse(log.metadata || '{}') : (log.metadata || {});
-        const metaBadge = Object.keys(meta).length > 0 
-            ? `<span class="ml-2 px-2 py-0.5 rounded text-[10px] font-mono bg-gray-100 text-gray-600 border border-gray-200 truncate max-w-[150px] inline-block align-middle">
-                ${JSON.stringify(meta).replace(/["{}]/g, '').substring(0, 20)}...
-               </span>` 
-            : '';
+        let metaBadge = '';
+        try {
+            const meta = typeof log.metadata === 'string' ? JSON.parse(log.metadata || '{}') : (log.metadata || {});
+            if(Object.keys(meta).length > 0) {
+                const metaStr = JSON.stringify(meta).replace(/["{}]/g, '').substring(0, 20);
+                metaBadge = `<span class="ml-2 px-2 py-0.5 rounded text-[10px] font-mono bg-gray-100 text-gray-600 border border-gray-200 truncate max-w-[150px] inline-block align-middle">${metaStr}...</span>`;
+            }
+        } catch(e) {}
 
         container.innerHTML += `
             <div class="timeline-item flex gap-4 group animate-fade-in">
-                <!-- Time Column -->
                 <div class="w-16 flex-shrink-0 text-right pt-1">
                     <span class="text-xs font-medium text-gray-400 group-hover:text-gray-600 transition-colors">${time}</span>
                 </div>
-                
-                <!-- Connector Line -->
                 <div class="relative flex flex-col items-center">
                     <div class="w-8 h-8 rounded-full ${style.bg} flex items-center justify-center z-10 border-2 border-white shadow-sm">
                         <i data-lucide="${style.icon}" class="w-4 h-4 ${style.color}"></i>
                     </div>
                     <div class="w-px h-full bg-gray-100 absolute top-8 -bottom-4 group-last:hidden"></div>
                 </div>
-
-                <!-- Content Card -->
                 <div class="flex-grow pb-6">
                     <div class="bg-gray-50 group-hover:bg-white group-hover:shadow-md group-hover:border-gray-200 border border-transparent rounded-xl p-3 transition-all duration-200">
                         <div class="flex justify-between items-start">
@@ -318,19 +310,13 @@ const renderTimeline = (logs) => {
     if(window.lucide) window.lucide.createIcons();
 };
 
-// Helper: Determine Icon & Color based on action
 const getLogStyle = (type) => {
-    if (type.includes('login') || type.includes('view')) 
-        return { icon: 'eye', color: 'text-blue-600', bg: 'bg-blue-100' };
-    if (type.includes('purchase') || type.includes('order') || type.includes('redeem')) 
-        return { icon: 'shopping-bag', color: 'text-green-600', bg: 'bg-green-100' };
-    if (type.includes('quiz') || type.includes('challenge') || type.includes('checkin')) 
-        return { icon: 'trophy', color: 'text-purple-600', bg: 'bg-purple-100' };
-    if (type.includes('error') || type.includes('fail') || type.includes('reject')) 
-        return { icon: 'alert-circle', color: 'text-red-600', bg: 'bg-red-100' };
-    if (type.includes('update') || type.includes('create') || type.includes('delete')) 
-        return { icon: 'edit-3', color: 'text-orange-600', bg: 'bg-orange-100' };
-    
+    const t = (type || '').toLowerCase();
+    if (t.includes('login') || t.includes('view')) return { icon: 'eye', color: 'text-blue-600', bg: 'bg-blue-100' };
+    if (t.includes('purchase') || t.includes('order') || t.includes('redeem')) return { icon: 'shopping-bag', color: 'text-green-600', bg: 'bg-green-100' };
+    if (t.includes('quiz') || t.includes('challenge') || t.includes('checkin')) return { icon: 'trophy', color: 'text-purple-600', bg: 'bg-purple-100' };
+    if (t.includes('error') || t.includes('fail') || t.includes('reject')) return { icon: 'alert-circle', color: 'text-red-600', bg: 'bg-red-100' };
+    if (t.includes('update') || t.includes('create') || t.includes('delete')) return { icon: 'edit-3', color: 'text-orange-600', bg: 'bg-orange-100' };
     return { icon: 'activity', color: 'text-gray-600', bg: 'bg-gray-100' };
 };
 
@@ -338,45 +324,38 @@ const getLogStyle = (type) => {
 // 5. REALTIME SUBSCRIPTION
 // =======================
 const setupRealtimeSubscription = () => {
-    if (activitySubscription) return; // Prevent duplicates
+    if (activitySubscription) return;
 
     activitySubscription = supabase
         .channel('admin-analytics')
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'user_activity_log' }, async (payload) => {
-            // Fetch rich user data for the new log
-            const { data: fullLog } = await supabase.from('user_activity_log').select('*, users(full_name, role)').eq('id', payload.new.id).single();
+            // Use the same explicit relationship for realtime fetching
+            const { data: fullLog } = await supabase
+                .from('user_activity_log')
+                .select('*, users!user_id(full_name, role)')
+                .eq('id', payload.new.id)
+                .single();
             
             if (fullLog) {
-                // Prepend to timeline visually without full refresh
-                // For simplicity in this MVP, we re-fetch to keep charts in sync, 
-                // but ideally you'd just inject HTML here.
                 fetchAndRenderData(); 
-                
-                // Toast Notification
                 showToast(`New Activity: ${fullLog.action_type}`, 'info');
             }
         })
         .subscribe();
 };
 
-// Simple Toast for Realtime events
 const showToast = (msg, type) => {
     const toast = document.createElement('div');
     toast.className = `fixed bottom-4 right-4 px-4 py-3 rounded-lg text-white text-sm font-bold shadow-lg transform transition-all duration-300 translate-y-10 opacity-0 ${type === 'error' ? 'bg-red-600' : 'bg-gray-900'}`;
     toast.innerHTML = msg;
     document.body.appendChild(toast);
-    
-    requestAnimationFrame(() => {
-        toast.classList.remove('translate-y-10', 'opacity-0');
-    });
-
+    requestAnimationFrame(() => toast.classList.remove('translate-y-10', 'opacity-0'));
     setTimeout(() => {
         toast.classList.add('translate-y-10', 'opacity-0');
         setTimeout(() => toast.remove(), 300);
     }, 3000);
 };
 
-// Search Filter Logic
 const filterTimeline = (term) => {
     const items = document.querySelectorAll('.timeline-item');
     term = term.toLowerCase();
